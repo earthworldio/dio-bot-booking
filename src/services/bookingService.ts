@@ -1,0 +1,692 @@
+import puppeteer, { Browser, Page } from 'puppeteer'
+import { BookingData, BotConfig, BotResult, CaptchaQuestion } from '../types'
+import logger from '../utils/logger'
+import { log } from 'console'
+
+export class BookingService {
+  private browser: Browser | null = null
+  private page: Page | null = null
+  private config: BotConfig
+
+  constructor(config: BotConfig) {
+    this.config = config
+  }
+
+  /* { Connect bot to chrome } */
+  async initialize(): Promise<void> {
+    try {
+      try {
+        this.browser = await puppeteer.connect({
+          browserURL: `http://localhost:${this.config.chromeDebugPort}`,
+          defaultViewport: null
+        })
+        logger.info('Bot เชื่อมต่อกับ Chrome สำเร็จ ✅')
+      } catch (e) {
+        throw new Error('Bot เชื่อมต่อกับ Chrome ไม่สำเร็จ ❌')
+      }
+      
+      // ใช้ tab ที่มีอยู่แล้วแทนการสร้างใหม่
+      const pages = await this.browser.pages()
+      if (pages.length > 0) {
+        this.page = pages[0] // ใช้ tab แรก
+        logger.info('ใช้ tab ที่มีอยู่แล้ว')
+      } else {
+        this.page = await this.browser.newPage()
+        logger.info('สร้าง tab ใหม่')
+      }
+      await this.page.setDefaultTimeout(this.config.timeout)
+
+    } catch (error) {
+      logger.error('Bot เชื่อมต่อกับ Chrome ไม่สำเร็จ ❌', error)
+      throw error
+    }
+  }
+
+  /* { Wait for booking time } */
+  async waitForBookingTime(): Promise<void> {
+    
+    const [hours, minutes] = this.config.bookingTime.split(':')
+    const targetTime = new Date()
+    
+    targetTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+    
+    /* { Start fetch website 11:59:58 } */
+    const fastMonitorTime = new Date(targetTime.getTime() - 2500)
+    
+    /* { Go to wait at page } */
+    await this.page!.goto(this.config.targetUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 10000
+    })
+
+    const currentTime = new Date()
+
+    if (currentTime >= targetTime) {
+      logger.info('เริ่ม Fast Monitoring Mode! 🚀')
+      await this.fastMonitorForForm()
+      return
+    }
+
+    if (currentTime >= fastMonitorTime) {
+      logger.info('เริ่ม Fast Monitoring Mode! 🚀')
+      await this.fastMonitorForForm()
+      return
+    }
+
+    /* { Wait until target time to start fast monitor } */
+    const waitTime = fastMonitorTime.getTime() - currentTime.getTime()
+    logger.info(`⏰ รอในหน้าเว็บจนถึง ${fastMonitorTime.toLocaleTimeString('th-TH')}... (${Math.floor(waitTime / 1000)} วินาที)`)
+    
+    /* { Wait until target time to start fast monitor } */
+    await new Promise(resolve => setTimeout(resolve, waitTime))
+    
+    await this.fastMonitorForForm()
+  }
+
+  /* { Fetch website to find form } */
+  async fastMonitorForForm(): Promise<void> {
+    
+    let attemptCount = 0
+    const maxAttempts = 600 
+    
+    while (attemptCount < maxAttempts) {
+      try {
+        attemptCount++
+        logger.info(`หาฟอร์มใหม่ครั้งที่ ${attemptCount} `)
+        await this.page!.reload({ waitUntil: 'domcontentloaded' })
+        await this.page!.waitForTimeout(300)
+       
+        const formCheck = await this.page!.evaluate(() => {
+          
+          const hasNameInput = !!document.querySelector('input#name')
+          const hasPersonInput = !!document.querySelector('input#person')
+          const hasPhoneInput = !!document.querySelector('input#contactPhone')
+          
+          const isCompleteForm = hasNameInput && hasPersonInput && hasPhoneInput
+          
+          const noWarning = !Array.from(document.querySelectorAll('h1, h2, p')).some(el => 
+            el.textContent && el.textContent.includes('ยังไม่สามารถจองโต๊ะได้')
+          )
+          
+          return {
+            hasNameInput,
+            hasPersonInput,
+            hasPhoneInput,
+            isCompleteForm,
+            noWarning,
+            isFormReady: isCompleteForm && noWarning
+          }
+
+        })
+        
+        if (formCheck.isFormReady) {
+          logger.info(`เจอฟอร์มแล้ว! 🎉`)
+          return
+        }
+      } catch (error) {
+        logger.info(`ครั้งที่ ${attemptCount} ยังไม่เจอฟอร์ม ❌`)
+        await this.page!.reload({ waitUntil: 'domcontentloaded' })
+        await this.page!.waitForTimeout(300)  
+      }
+    }
+  }
+
+  /* { Select date 7 days from now } */
+  async selectDate7DaysFromNow(): Promise<void> {
+      try {
+  
+        let datePicker = await this.page!.$('div.input.relative.cursor-pointer[label="วันที่จอง / Date"]')
+  
+        if (!datePicker) {
+          datePicker = await this.page!.$('div[aria-controls^="radix-:r"]')
+        }
+        
+        if (!datePicker) {
+          datePicker = await this.page!.$('div[label="วันที่จอง / Date"]')
+        }
+        
+  
+        if (!datePicker) {
+          const dateElements = await this.page!.$$('div.input.relative.cursor-pointer')
+          for (const element of dateElements) {
+            const labelText = await element.evaluate(el => el.querySelector('label')?.textContent)
+            if (labelText?.includes('วันที่จอง')) {
+              datePicker = element
+              break
+            }
+          }
+        }
+        
+        if (!datePicker) {
+          throw new Error('ไม่พบ date picker')
+        }
+        
+        await datePicker.click()
+        logger.info('คลิก date picker สำเร็จ')
+        
+    
+        const today = new Date()
+        const targetDate = new Date(today)
+        targetDate.setDate(today.getDate() + 7)
+        
+        const targetDay = targetDate.getDate()
+
+        logger.info(`วันนี้: ${today.getDate()} ${today.toLocaleDateString('th-TH', { month: 'long' })}`)
+        logger.info(`วันที่ต้องการ: ${targetDay} ${targetDate.toLocaleDateString('th-TH', { month: 'long' })}`)
+      
+        
+        const result = await this.page!.evaluate((targetDay) => {
+          const buttons = document.querySelectorAll('button[name="day"]:not([disabled])')
+          
+          for (let i = 0; i < buttons.length; i++) {
+            const button = buttons[i] as HTMLElement
+            if (button.textContent?.trim() === targetDay.toString()) {
+              button.click()
+              return { success: true, day: targetDay }
+            }
+          }
+          
+          return { success: false, day: targetDay }
+        }, targetDay)
+
+        let dateFound = false
+        
+        if (result.success) {
+          logger.info(`เลือกวันที่ ${result.day} สำเร็จ`)
+          dateFound = true
+        } else {
+          logger.warn(`ไม่พบวันที่ ${result.day} ที่เลือกได้`)
+        }
+        
+        await this.page!.waitForTimeout(300)
+        
+        if (!dateFound) {
+          logger.warn(`ไม่พบวันที่ ${targetDay} ด้วยวิธีที่ 1 ลองวิธีที่ 2...`)
+          const dateSelector = `[data-date="${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}"]`
+          const dateElement = await this.page!.$(dateSelector)
+          
+          if (dateElement) {
+            await dateElement.click()
+            logger.info(`เลือกวันที่ ${targetDay} สำเร็จ (วิธีที่ 2: data-date)`)
+            dateFound = true
+          } else {
+            logger.warn(`ไม่พบ data-date attribute ลองวิธีที่ 3...`)
+            
+            try {
+              const dateElements = await this.page!.evaluate((targetDay) => {
+                const buttons = document.querySelectorAll('button[name="day"]')
+                const matchingButtons: Element[] = []
+                
+                buttons.forEach(button => {
+                  if (button.textContent?.trim() === targetDay.toString()) {
+                    matchingButtons.push(button)
+                  }
+                })
+                
+                return matchingButtons
+              }, targetDay)
+              
+              if (dateElements.length > 0) {
+                const dateElement = dateElements[0] as Element
+                const isClickable = await this.page!.evaluate((el: Element) => {
+                  return !el.hasAttribute('disabled') &&
+                         !el.classList.contains('disabled') &&
+                         !el.classList.contains('opacity-50')
+                }, dateElement)
+                
+                if (isClickable) {
+                  await this.page!.evaluate((el: Element) => (el as HTMLElement).click(), dateElement)
+                  logger.info(`เลือกวันที่ ${targetDay} สำเร็จ (วิธีที่ 3: evaluate)`)
+                  dateFound = true
+                } else {
+                  logger.warn(`วันที่ ${targetDay} ไม่สามารถคลิกได้ (disabled)`)
+                }
+              } else {
+                logger.error(`ไม่พบวันที่ ${targetDay} ในปฏิทินเลย จะใช้วันที่ default`)
+              }
+            } catch (evaluateError) {
+              logger.warn(`Evaluate method ล้มเหลว: ${evaluateError}`)
+              logger.error(`ไม่พบวันที่ ${targetDay} ในปฏิทินเลย จะใช้วันที่ default`)
+            }
+        }
+      }
+      
+    } catch (error) {
+        logger.error('เกิดข้อผิดพลาดในการเลือกวันที่:', error)
+        logger.warn('จะใช้วันที่ default แทน')
+    }
+  }
+
+  /* { Click booking button } */
+  async clickBookingButton(): Promise<void> {
+    try {
+      let bookingButton = null
+      
+      try {
+        
+        await this.page!.waitForFunction(
+          `() => {
+            const buttons = document.querySelectorAll('button')
+            for (const button of buttons) {
+              if (button.textContent && button.textContent.trim() === 'จองโต๊ะล่วงหน้า') {
+                return true
+              }
+            }
+            return false
+          }`,
+          { timeout: 10000 }
+        )
+        
+        const buttons = await this.page!.$$('button')
+        for (const button of buttons) {
+          const buttonText = await button.evaluate(el => el.textContent?.trim())
+          if (buttonText === 'จองโต๊ะล่วงหน้า') {
+            bookingButton = button
+            logger.info('เจอปุ่ม จองโต๊ะล่วงหน้า ✅')
+            break
+          }
+        }
+        } catch (e) {
+        logger.warn('⚠️ ไม่เจอปุ่มด้วยข้อความ ลองหาด้วย class...')
+        try {
+          await this.page!.waitForSelector('button.bg-primary', { timeout: 5000 })
+          const buttons = await this.page!.$$('button.bg-primary')
+      
+      for (const button of buttons) {
+        const buttonText = await button.evaluate(el => el.textContent)
+        if (buttonText?.includes('จองโต๊ะล่วงหน้า')) {
+          bookingButton = button
+              logger.info('✅ เจอปุ่ม "จองโต๊ะล่วงหน้า" ด้วย class bg-primary')
+              break
+            }
+          }
+        } catch (e2) {
+          logger.warn('⚠️ ไม่เจอปุ่มด้วย class bg-primary')
+        }
+      
+        if (!bookingButton) {
+          try {
+            logger.info('🔍 ลองหาด้วย class inline-flex...')
+            const buttons = await this.page!.$$('button.inline-flex')
+            
+            for (const button of buttons) {
+              const buttonText = await button.evaluate(el => el.textContent?.trim())
+              if (buttonText === 'จองโต๊ะล่วงหน้า') {
+                bookingButton = button
+                logger.info('✅ เจอปุ่ม "จองโต๊ะล่วงหน้า" ด้วย class inline-flex')
+          break
+              }
+            }
+          } catch (e3) {
+            logger.warn('⚠️ ไม่เจอปุ่มด้วย class inline-flex')
+          }
+        }
+        
+        if (!bookingButton) {
+          try {
+            logger.info('🔍 ลองหาด้วย selector ซับซ้อน...')
+            const complexButton = await this.page!.$('button.inline-flex.items-center.justify-center[class*="bg-primary"]')
+            
+            if (complexButton) {
+              const buttonText = await complexButton.evaluate(el => el.textContent?.trim())
+              if (buttonText === 'จองโต๊ะล่วงหน้า') {
+                bookingButton = complexButton
+                logger.info('✅ เจอปุ่ม "จองโต๊ะล่วงหน้า" ด้วย selector ซับซ้อน')
+              }
+            }
+          } catch (e4) {
+            logger.warn('⚠️ ไม่เจอปุ่มด้วย selector ซับซ้อน')
+          }
+        }
+      }
+      
+      if (!bookingButton) {
+        throw new Error('ไม่พบปุ่มจองโต๊ะ')
+      }
+      
+      logger.info('🎯 พบปุ่มจองโต๊ะ กำลังคลิก...')
+    
+      const buttonInfo = await bookingButton.evaluate(el => {
+        return {
+          disabled: el.hasAttribute('disabled'),
+          visible: el.offsetParent !== null,
+          classes: el.className,
+          text: el.textContent?.trim()
+        }
+      })
+      
+      logger.info(`📋 ข้อมูลปุ่ม: ${JSON.stringify(buttonInfo)}`)
+      
+      await bookingButton.scrollIntoView()
+      await this.page!.waitForTimeout(300)
+      
+
+      let clickSuccess = false
+      
+      try {
+        logger.info('🖱️ ลองคลิกแบบปกติ...')
+        await bookingButton.click()
+        clickSuccess = true
+        logger.info('✅ คลิกแบบปกติสำเร็จ')
+      } catch (e) {
+        logger.warn('⚠️ คลิกแบบปกติไม่ได้')
+      }
+      
+      if (!clickSuccess) {
+        try {
+          logger.info('🖱️ ลองคลิกด้วย evaluate...')
+          await bookingButton.evaluate(el => el.click())
+          clickSuccess = true
+          logger.info('✅ คลิกด้วย evaluate สำเร็จ')
+        } catch (e) {
+          logger.warn('⚠️ คลิกด้วย evaluate ไม่ได้')
+        }
+      }
+      
+      if (!clickSuccess) {
+        try {
+          logger.info('🖱️ ลองส่ง click event...')
+          await bookingButton.evaluate(`el => {
+            const event = new window.MouseEvent('click', {
+              bubbles: true,
+              cancelable: true,
+              view: window
+            })
+            el.dispatchEvent(event)
+          }`)
+          clickSuccess = true
+          logger.info('✅ ส่ง click event สำเร็จ')
+        } catch (e) {
+          logger.warn('⚠️ ส่ง click event ไม่ได้')
+        }
+      }
+      
+      if (!clickSuccess) {
+        throw new Error('ไม่สามารถคลิกปุ่มได้ด้วยวิธีใดๆ')
+      }
+      
+      logger.info('✅ คลิกปุ่มจองโต๊ะแล้ว กำลังรอหน้าถัดไป...')
+    
+      try {
+        await this.page!.waitForFunction(
+          `() => {
+            // หา CAPTCHA section ที่ไม่มี hidden class
+            const captchaSection = document.querySelector('section.space-y-6:not(.hidden)')
+            const captchaInput = document.querySelector('input#small-input')
+            const confirmButton = document.querySelector('button:not([class*="hidden"])')
+            
+            // ตรวจสอบว่า section ปรากฏและมี input + button
+            if (captchaSection && captchaInput) {
+              // ตรวจสอบว่าปุ่มยืนยันมีข้อความที่ถูกต้อง
+              const buttons = document.querySelectorAll('button')
+              for (const button of buttons) {
+                if (button.textContent && button.textContent.includes('ยืนยันการจองโต๊ะ')) {
+                  return true
+                }
+              }
+            }
+            return false
+          }`,
+          { timeout: 10000 }
+        )
+        logger.info('🎉 CAPTCHA section ปรากฏแล้ว!')
+      } catch (e) {
+        const currentUrl = this.page!.url()
+        const hasHiddenSection = await this.page!.$('section.space-y-6.hidden')
+        const hasVisibleSection = await this.page!.$('section.space-y-6:not(.hidden)')
+        
+        logger.warn(`⚠️ ไม่เจอ CAPTCHA section`)
+        logger.info(`📍 URL ปัจจุบัน: ${currentUrl}`)
+        logger.info(`🔍 มี hidden section: ${!!hasHiddenSection}`)
+        logger.info(`🔍 มี visible section: ${!!hasVisibleSection}`)
+        
+        throw new Error('ไม่พบ CAPTCHA section หลังจากคลิกปุ่ม')
+      }
+      
+    } catch (error) {
+      logger.error('เกิดข้อผิดพลาดในการคลิกปุ่มจองโต๊ะ:', error)
+      throw error
+      
+    }
+  }
+
+  async fillBookingForm(data: BookingData , retryCount: number = 0): Promise<void> {
+    try {
+        await this.page!.waitForSelector('input#name', { timeout: 5000 })
+      await this.page!.type('input#name', data.name)
+      
+        await this.page!.waitForSelector('input#person', { timeout: 5000 })
+      await this.page!.type('input#person', data.amount)
+
+      await this.selectDate7DaysFromNow()
+        
+        await this.page!.waitForSelector('input#contactPhone', { timeout: 5000 })
+        await this.page!.type('input#contactPhone', data.phone)
+        
+        logger.info('กรอกข้อมูลการจองเสร็จสิ้น ✅')
+    } catch (error) {
+      logger.error('เกิดข้อผิดพลาดในการกรอกข้อมูลการจอง:', error)
+      if (retryCount < 50) {  
+        logger.info(`🔄 ลองใหม่ครั้ง่ที่ (${retryCount + 1}/50)...`)
+        await this.page!.reload({ waitUntil: 'domcontentloaded' })
+        await this.page!.waitForTimeout(300)
+        return this.fillBookingForm(data, retryCount + 1)
+      } else {
+        logger.info('ไม่สามารถกรอกข้อมูลการจองได้')
+        throw error
+      }
+    }
+  }
+
+  async solveCaptcha(): Promise<void> {
+    try {
+      
+      logger.info('กำลังแก้ไข CAPTCHA...')
+
+      await this.page!.waitForSelector('section.space-y-6', { timeout: 10000 })
+      
+      const captchaElements = await this.page!.$$('h1.text-lg.font-medium')
+      let questionElement = null
+      
+      for (const element of captchaElements) {
+        const text = await element.evaluate(el => el.textContent)
+        if (text && text.includes('=') && text.includes('?')) {
+          questionElement = element
+          break
+        }
+      }
+      
+      if (!questionElement) {
+        throw new Error('ไม่พบคำถาม CAPTCHA')
+      }
+      
+      const questionText = await questionElement.evaluate(el => el.textContent)
+      logger.info(`คำถาม CAPTCHA: ${questionText}`)
+      
+      if (!questionText) {
+        throw new Error('ไม่พบข้อความคำถาม CAPTCHA')
+      }
+      
+      
+      const answer = this.solveMathQuestion(questionText)
+      logger.info(`คำตอบ CAPTCHA: ${answer}`)
+      
+      
+      
+      await this.page!.type('input#small-input', answer.toString())
+      logger.info('กรอกคำตอบ CAPTCHA เสร็จสิ้น')
+      
+
+      logger.info('⏰ รอให้ระบบประมวลผล CAPTCHA...')
+      await this.page!.waitForTimeout(300)
+    
+      logger.info('🔍 รอปุ่ม "ยืนยันการจองโต๊ะ" ปรากฏ...')
+      try {
+        await this.page!.waitForFunction(
+          `() => {
+            const buttons = document.querySelectorAll('button')
+            for (const button of buttons) {
+              if (button.textContent && button.textContent.includes('ยืนยันการจองโต๊ะ')) {
+                return true
+              }
+            }
+            return false
+          }`,
+          { timeout: 10000 }
+        )
+        logger.info('✅ ปุ่ม "ยืนยันการจองโต๊ะ" ปรากฏแล้ว!')
+      } catch (e) {
+        logger.warn('⚠️ ไม่พบปุ่ม "ยืนยันการจองโต๊ะ" - อาจจะยังไม่ validate CAPTCHA สำเร็จ')
+      }
+      
+      logger.info('CAPTCHA เสร็จสิ้น')
+      
+    } catch (error) {
+      logger.error('เกิดข้อผิดพลาดในการแก้ไข CAPTCHA:', error)
+      logger.info('🔄 บราวเซอร์ยังเปิดอยู่ คุณสามารถแก้ CAPTCHA เองได้')
+    }
+  }
+
+  private solveMathQuestion(question: string): number {
+
+    const match = question.match(/(\d+)\s*([+\-×])\s*(\d+)/)
+    if (!match) {
+      throw new Error(`ไม่สามารถแยกคำถามได้: ${question}`)
+    }
+    
+    const num1 = parseInt(match[1])
+    const operator = match[2]
+    const num2 = parseInt(match[3])
+    
+    switch (operator) {
+      case '+':
+        return num1 + num2
+      case '-':
+        return num1 - num2
+      case '×':
+        return num1 * num2
+      default:
+        throw new Error(`ไม่รองรับเครื่องหมาย: ${operator}`)
+    }
+  }
+
+  async confirmBooking(): Promise<void> {
+    try {
+      logger.info('กำลังยืนยันการจอง...')
+
+      await this.page!.waitForTimeout(300)
+      
+      await this.page!.waitForSelector('button.bg-primary', { timeout: 10000 })
+
+      const buttons = await this.page!.$$('button.bg-primary')
+      let confirmButton = null
+      
+      for (const button of buttons) {
+        try {
+          const buttonText = await button.evaluate(el => el.textContent)
+          if (buttonText?.includes('ยืนยันการจองโต๊ะ')) {
+            confirmButton = button
+            break
+          }
+        } catch (e) {
+          logger.warn('ไม่สามารถอ่านข้อความของปุ่มได้')
+          continue
+        }
+      }
+      
+      if (!confirmButton) {
+        throw new Error('ไม่พบปุ่มยืนยันการจอง')
+      }
+      
+      try {
+        await confirmButton.evaluate(el => el.offsetParent !== null)
+      } catch (e) {
+        throw new Error('ปุ่มยืนยันการจองหายไปจาก DOM')
+      }
+      
+
+      const captchaInput = await this.page!.$('input#small-input')
+      if (captchaInput) {
+        const captchaValue = await captchaInput.evaluate(el => (el as any).value)
+        logger.info(`🔍 ตรวจสอบ CAPTCHA value: "${captchaValue}"`)
+        
+        if (!captchaValue || captchaValue.trim() === '') {
+          logger.warn('⚠️ CAPTCHA input ว่าง! กำลังลองกรอกใหม่...')
+          try {
+            await captchaInput.focus()
+            await this.page!.waitForTimeout(300)
+            await captchaInput.evaluate(el => {
+              (el as any).value = ''
+              el.dispatchEvent(new Event('input', { bubbles: true }))
+            })
+            await this.page!.waitForTimeout(300)
+          } catch (e) {
+            logger.warn('ไม่สามารถ focus input ได้, ใช้วิธีอื่น')
+            await captchaInput.evaluate(el => (el as any).value = '')
+            await this.page!.waitForTimeout(300)
+          }
+        
+          const captchaElements = await this.page!.$$('h1.text-lg.font-medium')
+          let questionElement = null
+          
+          for (const element of captchaElements) {
+            const text = await element.evaluate(el => el.textContent)
+            if (text && text.includes('=') && text.includes('?')) {
+              questionElement = element
+              break
+            }
+          }
+          
+          if (questionElement) {
+            const questionText = await questionElement.evaluate(el => el.textContent)
+            if (!questionText) {
+              throw new Error('ไม่พบข้อความคำถาม CAPTCHA')
+            }
+            const answer = this.solveMathQuestion(questionText)
+            logger.info(`🔄 กรอก CAPTCHA ใหม่: ${answer}`)
+            
+            await captchaInput.evaluate((el, value) => {
+              (el as any).value = value
+              el.dispatchEvent(new Event('input', { bubbles: true }))
+              el.dispatchEvent(new Event('change', { bubbles: true }))
+            }, answer.toString())
+            await this.page!.waitForTimeout(300)
+            
+            const newValue = await captchaInput.evaluate(el => (el as any).value)
+            if (!newValue) {
+              throw new Error('ไม่สามารถกรอก CAPTCHA ได้')
+            }
+          } else {
+            throw new Error('ไม่พบคำถาม CAPTCHA')
+          }
+        }
+        
+        logger.info('✅ CAPTCHA ถูกกรอกแล้ว')
+      }
+      
+    
+      await confirmButton.click()
+      
+      logger.info('กดปุ่มยืนยันการจองสำเร็จ')
+  
+      try {
+        await this.page!.waitForSelector('h1:contains("Payment")', { timeout: 10000 })
+        logger.info('ไปยังหน้าชำระเงินสำเร็จ')
+      } catch (e) {
+        logger.info('ไม่พบหน้า Payment, อาจจะไปหน้าอื่น')
+      }
+      
+      logger.info('ยืนยันการจองสำเร็จ')
+    } catch (error) {
+      logger.error('เกิดข้อผิดพลาดในการยืนยันการจอง:', error)
+      throw error
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.browser) {
+      await this.browser.close()
+      logger.info('ปิดบราวเซอร์แล้ว')
+    }
+  }
+} 

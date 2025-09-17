@@ -1,0 +1,74 @@
+{
+  "name": "dio-booking-bot",
+  "version": "1.0.0",
+  "description": "Bot สำหรับจองโต๊ะร้านเหล้า Dio",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "watch": "tsc --watch",
+    "test": "jest",
+    "electron": "electron electron/main.js",
+    "electron-dev": "npm run build && electron electron/main.js",
+    "dist": "npm run build && electron-builder",
+    "dist-win": "npm run build && electron-builder --win",
+    "dist-mac": "npm run build && electron-builder --mac"
+  },
+  "main": "electron/main.js",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "puppeteer": "^21.5.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.8.0",
+    "@types/puppeteer": "^7.0.4",
+    "electron": "^38.1.0",
+    "electron-builder": "^26.0.12",
+    "jest": "^29.7.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.0"
+  },
+  "keywords": [
+    "bot",
+    "booking",
+    "puppeteer",
+    "automation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "build": {
+    "appId": "com.dio.booking-bot",
+    "productName": "Bot จองโต๊ะ Dio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "start-chrome.sh",
+      ".env",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "electron/assets/icon.ico"
+    },
+    "mac": {
+      "target": "tar.gz",
+      "category": "public.app-category.utilities"
+    },
+    "portable": {
+      "artifactName": "dio_bot.exe"
+    }
+  }
+}
