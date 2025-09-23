@@ -1,26 +1,7 @@
 import dotenv from 'dotenv'
-
+import { BotConfig, BookingData } from '../types'
 
 dotenv.config()
-
-export interface BotConfig {
-  targetUrl: string
-  bookingTime: string
-  headless: boolean
-  timeout: number
-  chromeUserDataDir: string
-  chromeDebugPort: number
-}
-
-export interface BookingData {
-  name: string
-  phone: string
-  amount: string
-  timeSlot: string
-  notes: string
-  date: string
-}
-
 
 export const config: BotConfig = {
   targetUrl: process.env.TARGET_URL || 'https://ratchhour.com/services/tables/order',

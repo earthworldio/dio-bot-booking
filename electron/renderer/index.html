@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booking BOT</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --panel: #171a21;
+            --card: #1d212a;
+            --muted: #9aa4b2;
+            --text: #e5e7eb;
+            --border: #232733;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        }
+
+        .shell {
+            display: block;
+            min-height: 100vh;
+        }
+
+        .nav button {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 10px 12px;
+            border-radius: 8px;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .nav button.active {
+            background: var(--card);
+            border-color: #2a3040;
+        }
+
+        .content {
+            padding: 20px 24px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .title {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .section {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .section h3 {
+            margin: 0 0 12px;
+            font-size: 14px;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 10px 14px;
+        }
+
+        label {
+            color: var(--muted);
+            padding-top: 6px;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        button {
+            background: var(--card);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        button.primary,
+        button.success,
+        button.danger {
+            background: #101318;
+            border-color: var(--border);
+            color: var(--text);
+        }
+
+        #logs {
+            height: 260px;
+            overflow: auto;
+            background: #0b0d11;
+            color: #b7ffb7;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <main class="content" style="display:flex; align-items:center; justify-content:center;">
+            <div style="width:100%; max-width: 980px;">
+                <div class="section" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <div id="profileTabs" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+                    <div class="actions">
+                        <button id="btnAddProfile">+ Profile</button>
+                        <button id="btnRunAll" class="primary">Start All</button>
+                    </div>
+                </div>
+                <div class="header">
+                    <div class="title">Booking BOT</div>
+                    <div class="actions">
+                        <button id="btnSaveEnv" class="success">Save Config</button>
+                        <button id="btnRun" class="primary">Start</button>
+                        <button id="btnClose" class="danger">Stop</button>
+                    </div>
+                </div>
+
+                <div class="section">
+
+                    <div class="grid" style="margin: 12px 0;">
+                        <label for="TARGET_URL">Target Url </label>
+                        <input id="TARGET_URL" type="text" placeholder="https://ratchhour.com/services/tables/order" />
+
+                        <label for="BOOKING_START_TIME">Booking Time</label>
+                        <input id="BOOKING_START_TIME" type="text" placeholder="12:00" />
+
+
+                        <label for="CHROME_USER_DATA_DIR">Chrome User Data Dir</label>
+                        <input id="CHROME_USER_DATA_DIR" type="text" placeholder="./user-data" />
+
+                        <label for="CHROME_DEBUG_PORT">Chrome Debug Port</label>
+                        <input id="CHROME_DEBUG_PORT" type="number" placeholder="9222" />
+
+                        <label for="BOOKING_NAME">Booking Name</label>
+                        <input id="BOOKING_NAME" type="text" placeholder="ชื่อผู้จอง" />
+
+                        <label for="BOOKING_PHONE">Booking Phone</label>
+                        <input id="BOOKING_PHONE" type="text" placeholder="เบอร์โทร" />
+
+                        <label for="BOOKING_AMOUNT">Booking Amount</label>
+                        <input id="BOOKING_AMOUNT" type="text" placeholder="จำนวนคน" />
+
+
+                        <label for="CHROME_PATH">Chrome Path</label>
+                        <input id="CHROME_PATH" type="text" />
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>LOG <span id="logCount" style="font-size: 12px; color: #666;">(0 entries)</span></h3>
+                    <div id="logs"
+                        style="max-height: 300px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.4;">
+                    </div>
+                </div>
+
+                <script src="renderer.js"></script>
+            </div>
+        </main>
+    </div>
+</body>
+
+</html>

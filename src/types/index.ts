@@ -1,10 +1,10 @@
 export interface BookingData {
   name: string
-  amount: string
-  date: string
   phone: string
+  amount: string
   timeSlot: string
   notes?: string
+  date: string
 }
 
 export interface BotConfig {

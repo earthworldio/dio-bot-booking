@@ -1,0 +1,10 @@
+{
+  "targetUrl": "https://ratchhour.com/services/tables/order",
+  "bookingTime": "12:00",
+  "chromeDebugPort": 9222,
+  "timeout": 10000,
+  "name": "เอิร์ธ",
+  "phone": "0952802754",
+  "amount": "10",
+  "notes": ""
+}
