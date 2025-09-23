@@ -717,13 +717,6 @@ export class BookingService {
       await confirmButton.click()
       
       console.info('กดปุ่มยืนยันการจองสำเร็จ')
-  
-      try {
-        await this.page!.waitForSelector('h1:contains("Payment")', { timeout: 10000 })
-        console.info('ไปยังหน้าชำระเงินสำเร็จ')
-      } catch (e) {
-        console.info('ไม่พบหน้า Payment, อาจจะไปหน้าอื่น')
-      }
       
       console.info('ยืนยันการจองสำเร็จ')
     } catch (error) {
