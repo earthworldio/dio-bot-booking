@@ -8,6 +8,7 @@ export class BookingService {
   private page: Page | null = null
   private config: BotConfig
   private bookingButtonClicked: boolean = false
+  private captchaSolved: boolean = false
 
   constructor(config: BotConfig) {
     this.config = config
@@ -441,11 +442,13 @@ export class BookingService {
               }
               return false
             }`,
-            { timeout: 10000 }
+            { timeout: 5000 }
           )
-          console.info('✅ ปุ่ม "ยืนยันการจองโต๊ะ" ปรากฏแล้ว!')
+          this.captchaSolved = true
+          console.log('solveCaptcha');
+          return 
         } catch (e) {
-          console.warn('⚠️ ไม่พบปุ่ม "ยืนยันการจองโต๊ะ" - อาจจะยังไม่ validate CAPTCHA สำเร็จ')
+          console.warn('⚠️ ไม่พบปุ่ม "ยืนยันการจองโต๊ะ" - CAPTCHA อาจจะไม่สำเร็จ จะลองใหม่ใน confirmBooking()')
         }
       }
 
@@ -485,7 +488,6 @@ export class BookingService {
   /* Final confirmation click; verifies CAPTCHA input before submitting. */
   async confirmBooking(): Promise<void> {
     try {
-      console.info('กำลังยืนยันการจอง...')
 
       await this.page!.waitForSelector('button.bg-primary', { timeout: 10000 })
 
@@ -514,73 +516,73 @@ export class BookingService {
       } catch (e) {
         throw new Error('ปุ่มยืนยันการจองหายไปจาก DOM')
       }
-      
-
-      const captchaInput = await this.page!.$('input#small-input')
-      if (captchaInput) {
-        const captchaValue = await captchaInput.evaluate(el => (el as any).value)
-        console.info(`🔍 ตรวจสอบ CAPTCHA value: "${captchaValue}"`)
+    
+      if (!this.captchaSolved) {
         
-        if (!captchaValue || captchaValue.trim() === '') {
-          console.warn('⚠️ CAPTCHA input ว่าง! กำลังลองกรอกใหม่...')
-          try {
-            await captchaInput.focus()
-            
-            await captchaInput.evaluate(el => {
-              (el as any).value = ''
-              el.dispatchEvent(new Event('input', { bubbles: true }))
-            })
-            
-          } catch (e) {
-            console.warn('ไม่สามารถ focus input ได้, ใช้วิธีอื่น')
-            await captchaInput.evaluate(el => (el as any).value = '')
-            
-          }
-        
-          const captchaElements = await this.page!.$$('h1.text-lg.font-medium')
-          let questionElement = null
+        const captchaInput = await this.page!.$('input#small-input')
+        if (captchaInput) {
           
-          for (const element of captchaElements) {
-            const text = await element.evaluate(el => el.textContent)
-            if (text && text.includes('=') && text.includes('?')) {
-              questionElement = element
-              break
+          const captchaValue = await captchaInput.evaluate(el => (el as any).value)
+          
+          if (!captchaValue || captchaValue.trim() === '') {
+            try {
+              
+              await captchaInput.focus()
+              
+              await captchaInput.evaluate(el => {
+                (el as any).value = ''
+                el.dispatchEvent(new Event('input', { bubbles: true }))
+              })
+              
+            } catch (e) {
+              await captchaInput.evaluate(el => (el as any).value = '')
+              
+            }
+          
+            const captchaElements = await this.page!.$$('h1.text-lg.font-medium')
+            let questionElement = null
+            
+            for (const element of captchaElements) {
+              const text = await element.evaluate(el => el.textContent)
+              if (text && text.includes('=') && text.includes('?')) {
+                questionElement = element
+                break
+              }
+            }
+            
+            if (questionElement) {
+              const questionText = await questionElement.evaluate(el => el.textContent)
+              if (!questionText) {
+                throw new Error('ไม่พบข้อความคำถาม CAPTCHA')
+              }
+              const answer = this.solveMathQuestion(questionText)
+              console.info(`🔄 กรอก CAPTCHA ใหม่: ${answer}`)
+              
+              await captchaInput.evaluate((el, value) => {
+                (el as any).value = value
+                el.dispatchEvent(new Event('input', { bubbles: true }))
+                el.dispatchEvent(new Event('change', { bubbles: true }))
+              }, answer.toString())
+              
+              
+              const newValue = await captchaInput.evaluate(el => (el as any).value)
+              if (!newValue) {
+                throw new Error('ไม่สามารถกรอก CAPTCHA ได้')
+              }
+            } else {
+              throw new Error('ไม่พบคำถาม CAPTCHA')
             }
           }
           
-          if (questionElement) {
-            const questionText = await questionElement.evaluate(el => el.textContent)
-            if (!questionText) {
-              throw new Error('ไม่พบข้อความคำถาม CAPTCHA')
-            }
-            const answer = this.solveMathQuestion(questionText)
-            console.info(`🔄 กรอก CAPTCHA ใหม่: ${answer}`)
-            
-            await captchaInput.evaluate((el, value) => {
-              (el as any).value = value
-              el.dispatchEvent(new Event('input', { bubbles: true }))
-              el.dispatchEvent(new Event('change', { bubbles: true }))
-            }, answer.toString())
-            
-            
-            const newValue = await captchaInput.evaluate(el => (el as any).value)
-            if (!newValue) {
-              throw new Error('ไม่สามารถกรอก CAPTCHA ได้')
-            }
-          } else {
-            throw new Error('ไม่พบคำถาม CAPTCHA')
-          }
         }
-        
-        console.info('✅ CAPTCHA ถูกกรอกแล้ว')
+      } else {
+        console.info('✅ CAPTCHA สำเร็จแล้ว ข้ามการกรอกซ้ำ')
       }
       
-    
       await confirmButton.click()
       
       console.info('กดปุ่มยืนยันการจองสำเร็จ')
       
-      console.info('ยืนยันการจองสำเร็จ')
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการยืนยันการจอง:', error)
       throw error
