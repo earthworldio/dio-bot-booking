@@ -1,4 +1,4 @@
-import puppeteer, { Browser, Page } from 'puppeteer'
+import puppeteer, { Browser, Page, HTTPRequest } from 'puppeteer'
 import { BookingData, BotConfig  } from '../types'
 
 
@@ -19,9 +19,8 @@ export class BookingService {
     try {
       this.browser = browser
       await this.ensurePage()
-      console.info('Bot เชื่อมต่อกับ Chromium ภายในสำเร็จ ✅')
     } catch (error) {
-      console.error('เชื่อมต่อ Chromium ภายในไม่สำเร็จ ❌', error)
+      console.error('เชื่อมต่อ Chromium ภายในไม่สำเร็จ ❌ ', error)
       throw error
     }
   }
@@ -41,7 +40,6 @@ export class BookingService {
           browserURL: `http://localhost:${this.config.chromeDebugPort}`,
           defaultViewport: null
         })
-        console.info('เชื่อมต่อ Chrome ใหม่สำเร็จ ✅')
       } catch (e) {
         console.error('เชื่อมต่อ Chrome ใหม่ไม่สำเร็จ ❌')
         throw new Error('Browser ยังไม่พร้อม')
@@ -58,29 +56,31 @@ export class BookingService {
     const pages = await this.browser.pages()
     if (pages && pages.length > 0) {
       this.page = pages[pages.length - 1]
-      console.info(`ใช้ tab ที่มีอยู่แล้ว (${pages.length} tabs)`) 
     } else {
       this.page = await this.browser.newPage()
-      console.info('สร้าง tab ใหม่')
     }
     await this.page!.setDefaultTimeout(this.config.timeout)
+
     try {
+
+      this.page!.removeAllListeners('request')
+
       await this.page!.setRequestInterception(true)
-      this.page!.on('request', (req) => {
+      const handleRequest = (req: HTTPRequest) => {
         try {
           const type = req.resourceType()
+         
           if (type === 'image' || type === 'media' || type === 'font') {
-            if (!req.response()) {
-              req.abort()
-            }
+            req.abort()
           } else {
-            if (!req.response()) {
-              req.continue()
-            }
+            req.continue()
           }
-        } catch (e) {
+        } catch {
+        
+          try { req.continue() } catch {}
         }
-      })
+      }
+      this.page!.on('request', handleRequest)
     } catch {}
   }
 
@@ -113,7 +113,7 @@ export class BookingService {
     targetTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
     
     /* { Start fetch website 11:59:58 } */
-    const fastMonitorTime = new Date(targetTime.getTime() - 2500)
+    const fastMonitorTime = new Date(targetTime.getTime() - 1500)
     
     /* { Go to wait at page } */
     await this.page!.goto(this.config.targetUrl, {
@@ -402,7 +402,8 @@ export class BookingService {
       
       if(this.bookingButtonClicked) {
         console.log('this.bookingButtonClicked true', this.bookingButtonClicked)
-        await this.page!.waitForSelector('section.space-y-6', { timeout: 10000 })
+        // Wait for visible captcha section or the input field to appear
+        await this.page!.waitForSelector('section.space-y-6:not(.hidden), input#small-input', { timeout: this.config.timeout })
       
         const captchaElements = await this.page!.$$('h1.text-lg.font-medium')
         let questionElement = null
@@ -432,11 +433,13 @@ export class BookingService {
         
         await this.page!.type('input#small-input', answer.toString())
         try {
+          // Allow both "ยืนยันการจองโต๊ะ" and "ยืนยันการจอง"
           await this.page!.waitForFunction(
             `() => {
               const buttons = document.querySelectorAll('button')
               for (const button of buttons) {
-                if (button.textContent && button.textContent.includes('ยืนยันการจองโต๊ะ')) {
+                const t = (button.textContent || '').trim()
+                if (t.includes('ยืนยันการจองโต๊ะ') || t.includes('ยืนยันการจอง')) {
                   return true
                 }
               }
@@ -488,16 +491,18 @@ export class BookingService {
   /* Final confirmation click; verifies CAPTCHA input before submitting. */
   async confirmBooking(): Promise<void> {
     try {
-
-      await this.page!.waitForSelector('button.bg-primary', { timeout: 10000 })
-
-      const buttons = await this.page!.$$('button.bg-primary')
+      // Try to find primary buttons first, then fall back to scanning all buttons
+      let buttons = await this.page!.$$('button.bg-primary')
+      if (!buttons || buttons.length === 0) {
+        await this.page!.waitForSelector('button, [role="button"]', { timeout: this.config.timeout })
+        buttons = await this.page!.$$('button, [role="button"]') as any
+      }
       let confirmButton = null
       
       for (const button of buttons) {
         try {
           const buttonText = await button.evaluate(el => el.textContent)
-          if (buttonText?.includes('ยืนยันการจองโต๊ะ')) {
+          if (buttonText && (buttonText.includes('ยืนยันการจองโต๊ะ') || buttonText.includes('ยืนยันการจอง') || buttonText.includes('ยืนยัน'))) {
             confirmButton = button
             break
           }
@@ -579,6 +584,8 @@ export class BookingService {
         console.info('✅ CAPTCHA สำเร็จแล้ว ข้ามการกรอกซ้ำ')
       }
       
+      // Small delay to ensure any validation enables the button
+      await this.page!.waitForTimeout(150)
       await confirmButton.click()
       
       console.info('กดปุ่มยืนยันการจองสำเร็จ')
@@ -597,4 +604,4 @@ export class BookingService {
     }
   }
 
-} 
+}

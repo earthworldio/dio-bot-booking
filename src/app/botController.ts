@@ -110,7 +110,19 @@ export class BotController {
       headless: config.headless,
       userDataDir: config.chromeUserDataDir,
       defaultViewport: null,
-      args: ['--blink-settings=imagesEnabled=false'],
+      args: [
+        '--blink-settings=imagesEnabled=false',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--disable-translate',
+        '--disable-features=TranslateUI',
+        '--mute-audio',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--disable-popup-blocking',
+        '--disable-notifications'
+      ],
       executablePath
     })
     await this.bookingService.initializeWithBrowser(this.internalBrowser)

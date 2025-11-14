@@ -3,7 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 
-// Lazy import TS bot controller via compiled JS
+
 const { BotController, buildConfigFromEnv, buildBookingDataFromEnv } = require('../dist/app/botController.js')
 
 let mainWindow = null

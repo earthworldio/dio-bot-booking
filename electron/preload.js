@@ -4,7 +4,6 @@ contextBridge.exposeInMainWorld('api', {
   readEnv: () => ipcRenderer.invoke('env:read'),
   writeEnv: (content) => ipcRenderer.invoke('env:write', content),
   openChrome: (profileId, debugPort, userDataDir, extraEnv) => ipcRenderer.invoke('bot:openChrome', { profileId, debugPort, userDataDir, extraEnv }),
-  // connectBot: removed (Chromium internal auto-connect)
   isBotConnected: (profileId) => ipcRenderer.invoke('bot:isConnected', { profileId }),
   runBot: (profileId, envObj, date) => ipcRenderer.invoke('bot:run', { profileId, envObj, date }),
   runAll: (items) => ipcRenderer.invoke('bot:runAll', { items }),
