@@ -9,6 +9,10 @@ export class BookingService {
   private config: BotConfig
   private bookingButtonClicked: boolean = false
   private captchaSolved: boolean = false
+  private confirmClickCount: number = 0
+  private jitterMs: number = 250 + Math.floor(Math.random() * 100)
+  private confirmRetryCount: number = 0
+  private confirmInProgress: boolean = false
 
   constructor(config: BotConfig) {
     this.config = config
@@ -81,6 +85,44 @@ export class BookingService {
         }
       }
       this.page!.on('request', handleRequest)
+      this.page!.removeAllListeners('dialog')
+      
+    
+      this.page!.on('dialog', async (dialog) => {
+        const msg = dialog.message()
+        const isQuorum = /quorum/i.test(msg) || /unable\s+to\s+achieve/i.test(msg)
+        
+        try { await dialog.accept() } catch {}
+        
+        if (isQuorum && this.page) {
+          this.confirmRetryCount += 1
+          if (this.confirmRetryCount <= 5) {
+            try {
+              await this.page.waitForTimeout(this.jitterMs)
+              if (!this.confirmInProgress) {
+                await this.confirmBooking()
+              }
+            } catch {}
+          }
+        }
+      })
+
+      // this.page!.on('dialog', async (dialog) => {
+      //   const msg = dialog.message() || ''
+      //   const isClosed = /ปิดรับจอง/i.test(msg) || /ยังมีโต๊ะเหลือ.*Walk-?in/i.test(msg) || /closed/i.test(msg)
+      //   try { await dialog.accept() } catch {}
+      //   if (isClosed && this.page) {
+      //     this.confirmRetryCount += 1
+      //     if (this.confirmRetryCount <= 5) {
+      //       try {
+      //         await this.page.waitForTimeout(this.jitterMs)
+      //         if (!this.confirmInProgress) {
+      //           await this.confirmBooking()
+      //         }
+      //       } catch {}
+      //     }
+      //   }
+      // })
     } catch {}
   }
 
@@ -491,7 +533,11 @@ export class BookingService {
   /* Final confirmation click; verifies CAPTCHA input before submitting. */
   async confirmBooking(): Promise<void> {
     try {
-      // Try to find primary buttons first, then fall back to scanning all buttons
+      if (this.confirmInProgress) {
+        return
+      }
+      this.confirmInProgress = true
+  
       let buttons = await this.page!.$$('button.bg-primary')
       if (!buttons || buttons.length === 0) {
         await this.page!.waitForSelector('button, [role="button"]', { timeout: this.config.timeout })
@@ -584,8 +630,8 @@ export class BookingService {
         console.info('✅ CAPTCHA สำเร็จแล้ว ข้ามการกรอกซ้ำ')
       }
       
-      // Small delay to ensure any validation enables the button
-      await this.page!.waitForTimeout(150)
+      await this.page!.waitForTimeout(this.jitterMs)
+      this.confirmClickCount += 1
       await confirmButton.click()
       
       console.info('กดปุ่มยืนยันการจองสำเร็จ')
@@ -593,6 +639,8 @@ export class BookingService {
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการยืนยันการจอง:', error)
       throw error
+    } finally {
+      this.confirmInProgress = false
     }
   }
 
