@@ -107,22 +107,6 @@ export class BookingService {
         }
       })
 
-      // this.page!.on('dialog', async (dialog) => {
-      //   const msg = dialog.message() || ''
-      //   const isClosed = /ปิดรับจอง/i.test(msg) || /ยังมีโต๊ะเหลือ.*Walk-?in/i.test(msg) || /closed/i.test(msg)
-      //   try { await dialog.accept() } catch {}
-      //   if (isClosed && this.page) {
-      //     this.confirmRetryCount += 1
-      //     if (this.confirmRetryCount <= 5) {
-      //       try {
-      //         await this.page.waitForTimeout(this.jitterMs)
-      //         if (!this.confirmInProgress) {
-      //           await this.confirmBooking()
-      //         }
-      //       } catch {}
-      //     }
-      //   }
-      // })
     } catch {}
   }
 
