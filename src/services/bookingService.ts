@@ -138,8 +138,8 @@ export class BookingService {
     
     targetTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
     
-    /* { Start fetch website 11:59:58 } */
-    const fastMonitorTime = new Date(targetTime.getTime() - 1500)
+    /* { Start fetch website 11:59:59 } */
+    const fastMonitorTime = new Date(targetTime.getTime() - 1250)
     
     /* { Go to wait at page } */
     await this.page!.goto(this.config.targetUrl, {
@@ -397,15 +397,15 @@ export class BookingService {
   async fillBookingForm(data: BookingData , retryCount: number = 0): Promise<void> {
     try {
         await this.page!.waitForSelector('input#name', { timeout: 5000 })
-        await this.page!.type('input#name', data.name)
+        await this.page!.type('input#name', data.name, { delay: 100 })
       
         await this.page!.waitForSelector('input#person', { timeout: 5000 })
-        await this.page!.type('input#person', data.amount)
+        await this.page!.type('input#person', data.amount, { delay: 100 })
 
         await this.selectDate7DaysFromNow()
         
         await this.page!.waitForSelector('input#contactPhone', { timeout: 5000 })
-        await this.page!.type('input#contactPhone', data.phone)
+        await this.page!.type('input#contactPhone', data.phone, { delay: 100 })
         
         console.info('กรอกข้อมูลการจองเสร็จสิ้น ✅')
     } catch (error) {
